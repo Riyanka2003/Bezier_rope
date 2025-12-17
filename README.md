@@ -79,7 +79,7 @@ Role of Damping & Stability:
 
 6. HOW TO RUN & CONTROLS
 --------------------------------------------------------------------------------
-1. Click :- 
+1. Click :- https://riyanka2003.github.io/Bezier_rope/
 2. Move the mouse to pull the rope.
 3. Use the UI controls in the top-right corner:
     - Stiffness Slider: Controls the tension (Higher = Snap back faster).
