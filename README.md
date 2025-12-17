@@ -85,5 +85,3 @@ Role of Damping & Stability:
     - Stiffness Slider: Controls the tension (Higher = Snap back faster).
     - Damping Slider: Controls the friction (Lower = More wobble).
 
-================================================================================
-END OF README
