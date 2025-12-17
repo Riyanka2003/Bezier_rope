@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Bézier Rope Physics</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #1a1a1a; color: #eee; font-family: sans-serif; }
+        canvas { display: block; }
+        #instructions {
+            position: absolute; top: 20px; left: 20px;
+            background: rgba(0, 0, 0, 0.7); padding: 15px; border-radius: 8px;
+            pointer-events: none; 
+        }
+    </style>
+</head>
+<body>
+
+<div id="instructions">
+    <h2>Bézier Physics Rope</h2>
+    <p><strong>Move Mouse:</strong> Displace control points</p>
+    <p><strong>Green:</strong> Anchors | <strong>Blue:</strong> Control Points</p>
+    <p><strong>Red:</strong> Tangent Vectors</p>
+</div>
+
+<div id="controls">
+    <div class="control-group">
+        <label>Stiffness (Spring Tension)</label>
+        <input type="range" id="stiffnessSlider" min="0.01" max="0.2" step="0.01" value="0.05">
+        <span id="stiffnessVal">0.05</span>
+    </div>
+    <div class="control-group">
+        <label>Damping (Friction)</label>
+        <input type="range" id="dampingSlider" min="0.5" max="0.99" step="0.01" value="0.90">
+        <span id="dampingVal">0.90</span>
+    </div>
+</div>
+
+<canvas id="canvas"></canvas>
+
+<style>
+    body { margin: 0; overflow: hidden; background: #1a1a1a; color: #eee; font-family: sans-serif; }
+    canvas { display: block; }
+    
+    /* Left Panel */
+    #instructions {
+        position: absolute; top: 20px; left: 20px;
+        background: rgba(0, 0, 0, 0.7); padding: 15px; border-radius: 8px;
+        pointer-events: none;
+    }
+
+    /* Right Panel */
+    #controls {
+        position: absolute; top: 20px; right: 20px;
+        background: rgba(0, 0, 0, 0.8); padding: 20px; border-radius: 8px;
+        width: 250px;
+    }
+    .control-group { margin-bottom: 15px; }
+    label { display: block; font-size: 0.9em; margin-bottom: 5px; color: #00d2ff; }
+    input[type=range] { width: 100%; cursor: pointer; }
+    span { float: right; font-family: monospace; font-weight: bold; }
+</style>
+
+<script>
+/**
+ * CORE CONFIGURATION (Mutable)
+ */
+const CONFIG = {
+    stiffness: 0.05,  
+    damping: 0.90,    
+    segments: 100,    
+    tangentCount: 10, 
+    tangentScale: 30  
+};
+
+// UI Element References
+const stiffInput = document.getElementById('stiffnessSlider');
+const dampInput = document.getElementById('dampingSlider');
+const stiffDisplay = document.getElementById('stiffnessVal');
+const dampDisplay = document.getElementById('dampingVal');
+
+// Event Listeners for Real-time Physics Tuning
+stiffInput.addEventListener('input', (e) => {
+    CONFIG.stiffness = parseFloat(e.target.value);
+    stiffDisplay.textContent = CONFIG.stiffness.toFixed(2);
+});
+
+dampInput.addEventListener('input', (e) => {
+    CONFIG.damping = parseFloat(e.target.value);
+    dampDisplay.textContent = CONFIG.damping.toFixed(2);
+});
+
+
+// Canvas Setup
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+let width, height;
+// Input State
+const mouse = { x: 0, y: 0 };
+
+/**
+ * MATH HELPERS
+ */
+const Vec2 = {
+    add: (v1, v2) => ({ x: v1.x + v2.x, y: v1.y + v2.y }),
+    sub: (v1, v2) => ({ x: v1.x - v2.x, y: v1.y - v2.y }),
+    mult: (v, s) => ({ x: v.x * s, y: v.y * s }),
+    mag: (v) => Math.sqrt(v.x * v.x + v.y * v.y),
+    normalize: (v) => {
+        const m = Math.sqrt(v.x * v.x + v.y * v.y);
+        return m === 0 ? { x: 0, y: 0 } : { x: v.x / m, y: v.y / m };
+    }
+};
+
+/**
+ * PHYSICS POINT CLASS
+ */
+class PhysicsPoint {
+    constructor(x, y) {
+        this.pos = { x, y };
+        this.vel = { x: 0, y: 0 };
+        this.target = { x, y }; 
+    }
+
+    update() {
+        const displacement = Vec2.sub(this.pos, this.target);
+        // Uses the dynamic CONFIG.stiffness
+        const springForce = Vec2.mult(displacement, -CONFIG.stiffness);
+        
+        this.vel = Vec2.add(this.vel, springForce);
+        
+        // Uses the dynamic CONFIG.damping
+        this.vel = Vec2.mult(this.vel, CONFIG.damping);
+        this.pos = Vec2.add(this.pos, this.vel);
+    }
+}
+
+// Initialize Points
+let P0, P3, P1, P2;
+
+function init() {
+    width = canvas.width = window.innerWidth;
+    height = canvas.height = window.innerHeight;
+    P0 = { x: width * 0.2, y: height * 0.5 };
+    P3 = { x: width * 0.8, y: height * 0.5 };
+    P1 = new PhysicsPoint(width * 0.4, height * 0.5);
+    P2 = new PhysicsPoint(width * 0.6, height * 0.5);
+    mouse.x = width / 2;
+    mouse.y = height / 2;
+}
+
+function getBezierPoint(t, p0, p1, p2, p3) {
+    const mt = 1 - t;
+    const mt2 = mt * mt;
+    const mt3 = mt2 * mt;
+    const t2 = t * t;
+    const t3 = t2 * t;
+    const term0 = Vec2.mult(p0, mt3);
+    const term1 = Vec2.mult(p1, 3 * mt2 * t);
+    const term2 = Vec2.mult(p2, 3 * mt * t2);
+    const term3 = Vec2.mult(p3, t3);
+    let res = Vec2.add(term0, term1);
+    res = Vec2.add(res, term2);
+    res = Vec2.add(res, term3);
+    return res;
+}
+
+function getTangent(t, p0, p1, p2, p3) {
+    const mt = 1 - t;
+    const mt2 = mt * mt;
+    const t2 = t * t;
+    const d1 = Vec2.sub(p1, p0);
+    const d2 = Vec2.sub(p2, p1);
+    const d3 = Vec2.sub(p3, p2);
+    const term0 = Vec2.mult(d1, 3 * mt2);
+    const term1 = Vec2.mult(d2, 6 * mt * t);
+    const term2 = Vec2.mult(d3, 3 * t2);
+    let tangent = Vec2.add(term0, term1);
+    tangent = Vec2.add(tangent, term2);
+    return Vec2.normalize(tangent);
+}
+
+function animate() {
+    ctx.clearRect(0, 0, width, height);
+    P1.target = { x: mouse.x - 100, y: mouse.y };
+    P2.target = { x: mouse.x + 100, y: mouse.y };
+    P1.update();
+    P2.update();
+
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+    ctx.beginPath();
+    ctx.moveTo(P0.x, P0.y);
+    ctx.lineTo(P1.pos.x, P1.pos.y);
+    ctx.lineTo(P2.pos.x, P2.pos.y);
+    ctx.lineTo(P3.x, P3.y);
+    ctx.stroke();
+
+    ctx.strokeStyle = '#00d2ff';
+    ctx.lineWidth = 4;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    for (let i = 0; i <= CONFIG.segments; i++) {
+        const t = i / CONFIG.segments;
+        const point = getBezierPoint(t, P0, P1.pos, P2.pos, P3);
+        if (i === 0) ctx.moveTo(point.x, point.y);
+        else ctx.lineTo(point.x, point.y);
+    }
+    ctx.stroke();
+
+    for (let i = 0; i <= CONFIG.tangentCount; i++) {
+        const t = i / CONFIG.tangentCount;
+        const pos = getBezierPoint(t, P0, P1.pos, P2.pos, P3);
+        const tan = getTangent(t, P0, P1.pos, P2.pos, P3);
+        ctx.strokeStyle = '#ff4757';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(pos.x, pos.y);
+        ctx.lineTo(pos.x + tan.x * CONFIG.tangentScale, pos.y + tan.y * CONFIG.tangentScale);
+        ctx.stroke();
+    }
+
+    drawCircle(P0, 8, '#2ecc71');
+    drawCircle(P3, 8, '#2ecc71');
+    drawCircle(P1.pos, 6, '#2980b9');
+    drawCircle(P2.pos, 6, '#2980b9');
+
+    requestAnimationFrame(animate);
+}
+
+function drawCircle(pt, r, color) {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, r, 0, Math.PI * 2);
+    ctx.fill();
+}
+
+window.addEventListener('mousemove', e => {
+    mouse.x = e.clientX;
+    mouse.y = e.clientY;
+});
+window.addEventListener('resize', init);
+init();
+animate();
+</script>
+</body>
+</html>
